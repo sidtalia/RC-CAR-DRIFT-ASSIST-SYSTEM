@@ -6,14 +6,14 @@ volatile unsigned long timer[3];
 volatile byte last_channel[2]={0,0};
 volatile int input[2]={1500,1500};
 
-int steer,throttle;  //servo objects
-long esc_timer;
-long timestamp;
-#define STEERINGPIN B11101111
-#define THROTTLEPIN B11110111
-#define STEERING_NULL 1460
-#define THROTTLE_NULL 1460
-#define Kd 1
+int steer,throttle;  //the pid outputs
+long esc_timer; //timer for the loop 
+long timestamp; //timestamp
+#define STEERINGPIN B11101111 //pin 4
+#define THROTTLEPIN B11110111 //pin 3
+#define STEERING_NULL 1500//you might have to change these if your neutral signal is different
+#define THROTTLE_NULL 1500
+#define Kd 1 //change this to increase or decrease the amount of "assist"
 
 //-----ACCEL-GYRO STUFF BEGINS---------------------
 
@@ -22,18 +22,18 @@ MPU6050 accelgyro;
 int16_t ax, ay, az;  //accelerations from mpu6050
 int16_t gx, gy, gz;  //gyration rates from mpu6050
 
-float G[3],lastA[3],offsetG[3]; //x=0,y=1,z=2, T=tilt,V=velocity ,X=position on X axis,Y=position on Y axis,Ha=horizontall acceleration along Y direction
+float G[3],lastA[3],offsetG[3]; //x=0,y=1,z=2.
 int i;
 
 #define SAMPLE 2000
 
 int c;
 
-inline void motorWrite()
+void motorWrite()
 {
   if(millis()-timestamp>=20)
   {
-    timestamp=millis();
+    timestamp=millis();//make sure we don't send the signal too soon. so take a time stamp now and compare again in the next cycle
     PORTD |= B00011000;
     esc_timer=micros();
     while(PORTD>8)
@@ -51,8 +51,7 @@ inline void motorWrite()
 }
 
 void setup() 
-{    // join I2C bus (I2Cdev library doesn't do this automatically)
-  //Serial.begin(9600);
+{ 
   PCICR |= (1 << PCIE0);   
   PCMSK0 |= (1 << PCINT0); //8
   PCMSK0 |= (1 << PCINT1); //9
@@ -68,29 +67,25 @@ void setup()
   //-----------ACCELGYRO SETUP BEGINS-------------
   Wire.setClock(800000);
   Wire.begin();
-//  Serial.println("Initializing I2C devices...");
   accelgyro.initialize();
-  
-  // verify connection
-//  Serial.println("Testing device connections...");
   accelgyro.testConnection() ? c=1 : c=0;
   //calculating offsets
   for(i=0;i<SAMPLE;i++)
   {
     accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
     offsetG[2]+=gz;
-    motorWrite();
+    motorWrite();//keep writing neutral signal 
   }
-  for(i=0;i<3;i++)
-  {
-    offsetG[i]/=SAMPLE;
-  }
+  offsetG[2]/=SAMPLE;
 }
-
 
 float mod(float a)
 {
-  return sqrt(a*a);
+  if(a<0)
+  {
+    return -a;
+  }
+  return a;
 }
 
 long loop_timer;
@@ -103,8 +98,8 @@ void loop()
       accelgyro.testConnection()? c=1 : c=0;
     }    
     callimu();
-    steer=input[0]+Kd*G[2];
-    throttle=input[1]-mod(G[2]);
+    steer=input[0]+Kd*G[2];//open loop plus D controller.
+    throttle=input[1]-mod(G[2]); //open loop plus D controller. 
     motorWrite();
     while(millis()-loop_timer<0); //50hz update rate. 
 }
